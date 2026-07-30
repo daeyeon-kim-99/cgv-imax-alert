@@ -26,6 +26,7 @@ v5 대비:
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import random
@@ -183,14 +184,14 @@ def _load_fonts():
     return _FONTS or None
 
 
-def flatten(alerts) -> list[tuple[date, str, str, str]]:
-    """(날짜, 관라벨, 관이름, 영화) 리스트. WATCH_FORMATS 순 → 날짜 순."""
+def flatten(alerts) -> list[tuple[date, str, str, str, dict]]:
+    """(날짜, 관라벨, 관이름, 영화, row) 리스트. WATCH_FORMATS 순 → 날짜 순."""
     order = {lbl: i for i, (lbl, _) in enumerate(WATCH_FORMATS)}
     out = []
     for day in alerts:
-        for label, pairs in alerts[day].items():
-            for hall, title in pairs:
-                out.append((day, label, hall, title))
+        for label, triples in alerts[day].items():
+            for hall, title, row in triples:
+                out.append((day, label, hall, title, row))
     out.sort(key=lambda x: (order.get(x[1], 99), x[0]))
     return out
 
@@ -205,7 +206,7 @@ def render_card(items: list[tuple[date, str, str, str]]) -> bytes | None:
     except Exception:
         return None
 
-    day, label, hall, title = items[0]
+    day, label, hall, title, _row = items[0]
     rest = items[1:5]
     W = 800
     H = 340 + (52 * len(rest) + 30 if rest else 0)
@@ -225,7 +226,7 @@ def render_card(items: list[tuple[date, str, str, str]]) -> bytes | None:
 
     if rest:
         d.line([40, 345, W - 40, 345], fill="#DDDDDD", width=2)
-        for i, (d2, lb2, _h2, t2) in enumerate(rest):
+        for i, (d2, lb2, _h2, t2, _r2) in enumerate(rest):
             y = 375 + i * 52
             tw = int(d.textlength(lb2, font=fonts["sm"])) + 24
             d.rounded_rectangle([40, y, 40 + tw, y + 38], radius=6, fill="#E6F1FB")
@@ -243,8 +244,8 @@ def esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def build_caption(items: list[tuple[date, str, str, str]]) -> str:
-    day, label, hall, title = items[0]
+def build_caption(items: list[tuple[date, str, str, str, dict]]) -> str:
+    day, label, hall, title, _row = items[0]
     lines = [
         f"\U0001F6A8 <b>{esc(label)} 열렸습니다</b>",
         "",
@@ -254,7 +255,7 @@ def build_caption(items: list[tuple[date, str, str, str]]) -> str:
     rest = items[1:]
     if rest:
         lines += ["", "━━ 같이 열린 것"]
-        for d2, lb2, _h2, t2 in rest[:8]:
+        for d2, lb2, _h2, t2, _r2 in rest[:8]:
             lines.append(f"· {esc(lb2)} · {d2.month}/{d2.day}({WEEKDAY_KR[d2.weekday()]}) · {esc(t2)}")
         if len(rest) > 8:
             lines.append(f"· 외 {len(rest) - 8}건")
@@ -266,7 +267,48 @@ def _chat_ids() -> list[str]:
     return [c.strip() for c in os.environ["TELEGRAM_CHAT_ID"].split(",") if c.strip()]
 
 
-KEYBOARD = {"inline_keyboard": [[{"text": "\U0001F3AB 예매하러 가기", "url": BOOK_URL}]]}
+# CGV 예매 SPA가 sessionStorage.query에서 실제로 읽는 필드만 추려서 URL 길이를 줄인다.
+# (--dump로 확인한 searchMovScnInfo row 필드와 대부분 이름이 겹침)
+QUERY_FIELDS = (
+    "coCd", "siteNo", "scnsNo", "scnYmd", "scnSseq", "scnsrtTm", "scnendTm",
+    "prodNo", "salsTznCd", "movkndCd", "tcscnsGradCd", "sascnsGradCd",
+    "movTirCd", "siteGradCd", "srvltKindCd", "movfNo", "prdcmpTypCd",
+    "prdtypCd", "prddtlTypCd", "dblfrNo", "dblfrRpsntYn", "videoAddexpCd",
+    "bzplcNo", "cxprdYn", "scnsGradCd", "speclIndctTypCd", "prcrulDivCd",
+    "cratgClsCd", "cndSalYnList", "vatincYn", "slddKindCd", "iceconYn",
+    "arthsYn", "srlsYn", "childnMovYn", "movNo", "movNm", "movkndDsplEnm",
+    "expoProdNm",
+)
+
+
+def build_deeplink(row: dict) -> str | None:
+    """
+    row(searchMovScnInfo 원본)에서 CGV 예매 SPA의 sessionStorage.query가
+    실제로 쓰는 필드만 추려 base64url 인코딩해 URL 해시에 담는다.
+    해시는 서버로 전송되지 않으므로 CGV 쪽 라우팅/서버엔 영향이 없다.
+    cgv-auto-seat.user.js (Tampermonkey/Userscripts)가 이 해시를 읽어서
+    sessionStorage에 주입 후 좌석선택 화면으로 바로 이동시킨다.
+    """
+    try:
+        payload = {k: row.get(k) for k in QUERY_FIELDS}
+        payload["soldierJoinStus"] = "N"
+        physc_path = row.get("physcFilePathnm")
+        payload["prodImg"] = (
+            f"https://cdn.cgv.co.kr/cgvpomsfilm/Movie/Thumbnail/Poster/{physc_path}"
+            if physc_path else None
+        )
+        encoded = base64.urlsafe_b64encode(
+            json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        ).decode("ascii").rstrip("=")
+        return f"{BOOK_URL}#auto={encoded}"
+    except Exception as e:
+        print(f"[warn] 딥링크 생성 실패: {e}", file=sys.stderr)
+        return None
+
+
+def build_keyboard(row: dict) -> dict:
+    url = build_deeplink(row) or BOOK_URL
+    return {"inline_keyboard": [[{"text": "\U0001F3AB 좌석선택 바로가기", "url": url}]]}
 
 
 def _post(method: str, payload: dict, files=None) -> None:
@@ -283,18 +325,19 @@ def send_alert(alerts) -> None:
     items = flatten(alerts)
     caption = build_caption(items)
     png = render_card(items) if CARD_ENABLED else None
+    keyboard = build_keyboard(items[0][4])
 
     for chat_id in _chat_ids():
         try:
             if png:
                 _post("sendPhoto",
                       {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML",
-                       "reply_markup": json.dumps(KEYBOARD)},
+                       "reply_markup": json.dumps(keyboard)},
                       files={"photo": ("cgv.png", png, "image/png")})
             else:
                 _post("sendMessage",
                       {"chat_id": chat_id, "text": caption, "parse_mode": "HTML",
-                       "disable_web_page_preview": True, "reply_markup": KEYBOARD})
+                       "disable_web_page_preview": True, "reply_markup": keyboard})
         except Exception as e:
             print(f"[warn] {chat_id} 전송 실패: {e}", file=sys.stderr)
 
@@ -342,11 +385,12 @@ def fetch_rows(target: date) -> list[dict]:
 
 
 # --------------------- scan ---------------------
-def scan(state: set[str], verbose: bool = True) -> dict[date, dict[str, list[tuple[str, str]]]]:
+def scan(state: set[str], verbose: bool = True) -> dict[date, dict[str, list[tuple[str, str, dict]]]]:
     """
-    반환: {날짜: {관라벨: [상영작, ...]}}  — 새로 열린 것만
+    반환: {날짜: {관라벨: [(관이름, 영화, row), ...]}}  — 새로 열린 것만
+    row는 딥링크 생성용 원본 API row (build_deeplink 참고).
     """
-    alerts: dict[date, dict[str, list[tuple[str, str]]]] = {}
+    alerts: dict[date, dict[str, list[tuple[str, str, dict]]]] = {}
     empty_streak = 0
     calls = 0
 
@@ -373,8 +417,8 @@ def scan(state: set[str], verbose: bool = True) -> dict[date, dict[str, list[tup
             continue
         empty_streak = 0
 
-        # 관별로 상영작 수집
-        by_fmt: dict[str, set[tuple[str, str]]] = {}
+        # 관별로 상영작 수집 (같은 관+영화면 첫 회차 row를 대표로 보관)
+        by_fmt: dict[str, dict[tuple[str, str], dict]] = {}
         for r in rows:
             label = detect_format(r)
             if not label:
@@ -383,30 +427,32 @@ def scan(state: set[str], verbose: bool = True) -> dict[date, dict[str, list[tup
             if MOVIE_KEYWORDS and not any(k in title for k in MOVIE_KEYWORDS):
                 continue
             hall = pick(r, FIELD_HALL) or label
-            by_fmt.setdefault(label, set()).add((hall, title))
+            by_fmt.setdefault(label, {}).setdefault((hall, title), r)
 
         if verbose:
             summary = ", ".join(f"{k}({len(v)})" for k, v in sorted(by_fmt.items())) or "-"
             print(f"[debug] {target} rows={len(rows)} → {summary}")
 
         for label in pending:
-            titles = by_fmt.get(label)
-            if titles:
+            entries = by_fmt.get(label)
+            if entries:
                 state.add(state_key(label, target))
-                alerts.setdefault(target, {})[label] = sorted(titles)
+                alerts.setdefault(target, {})[label] = [
+                    (hall, title, row) for (hall, title), row in sorted(entries.items())
+                ]
 
     if verbose:
         print(f"[debug] API 호출 {calls}회")
     return alerts
 
 
-def build_message(alerts: dict[date, dict[str, list[tuple[str, str]]]]) -> str:
+def build_message(alerts: dict[date, dict[str, list[tuple[str, str, dict]]]]) -> str:
     blocks = []
     for day in sorted(alerts):
         lines = [f"📅 {fmt_day(day)}"]
         for label in [lbl for lbl, _ in WATCH_FORMATS if lbl in alerts[day]]:
             lines.append(f"  • {label}")
-            for hall, title in alerts[day][label]:
+            for hall, title, _row in alerts[day][label]:
                 lines.append(f"      {hall} — {title}")
         blocks.append("\n".join(lines))
     return (
