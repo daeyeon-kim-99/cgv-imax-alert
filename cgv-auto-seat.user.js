@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         CGV 좌석선택 바로가기
-// @namespace    https://github.com/2028comestrue/cgv-imax-alert
+// @namespace    https://github.com/daeyeon-kim-99/cgv-imax-alert
 // @version      1.0.0
 // @description  텔레그램 알림의 #auto= 링크로 들어오면 극장/회차를 자동으로 채워넣고 좌석선택 화면으로 바로 이동시킨다.
 // @match        https://cgv.co.kr/cnm/movieBook/cinema*
 // @match        https://cgv.co.kr/cnm/selectVisitorCnt*
 // @run-at       document-end
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/2028comestrue/cgv-imax-alert/main/cgv-auto-seat.user.js
-// @downloadURL  https://raw.githubusercontent.com/2028comestrue/cgv-imax-alert/main/cgv-auto-seat.user.js
+// @updateURL    https://raw.githubusercontent.com/daeyeon-kim-99/cgv-imax-alert/main/cgv-auto-seat.user.js
+// @downloadURL  https://raw.githubusercontent.com/daeyeon-kim-99/cgv-imax-alert/main/cgv-auto-seat.user.js
 // ==/UserScript==
 
 (function () {
