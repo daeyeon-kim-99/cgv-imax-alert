@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CGV 좌석선택 바로가기
 // @namespace    https://github.com/daeyeon-kim-99/cgv-imax-alert
-// @version      1.0.0
+// @version      1.1.0
 // @description  텔레그램 알림의 #auto= 링크로 들어오면 극장/회차를 자동으로 채워넣고 좌석선택 화면으로 바로 이동시킨다.
 // @match        https://cgv.co.kr/cnm/movieBook/cinema*
 // @match        https://cgv.co.kr/cnm/selectVisitorCnt*
@@ -74,9 +74,16 @@
         isPrfer: false,
       },
     ];
+    // CGV 앱이 "정상적인 단계별 진입"인지 확인하는 데 쓰는 내비게이션 히스토리.
+    // 실제로 극장선택 화면을 거쳐 들어온 것처럼 최소 형태로 채워준다.
+    // (없으면 앱이 비정상 진입으로 보고 홈으로 되돌리면서 React #185 크래시가 남)
+    const navStack = JSON.stringify(["/", "/cnm/movieBook/cinema"]);
+
     sessionStorage.setItem("movStore", JSON.stringify(movStore));
     sessionStorage.setItem("siteStore", JSON.stringify(siteStore));
     sessionStorage.setItem("query", JSON.stringify(data));
+    sessionStorage.setItem("cgvNavigationStack", navStack);
+    sessionStorage.setItem("moviBookHistoryBack", navStack);
 
     // 해시를 지워서 뒤로가기/새로고침 시 재실행되지 않게 함.
     history.replaceState(null, "", location.pathname);
