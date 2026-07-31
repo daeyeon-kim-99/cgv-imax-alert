@@ -2,9 +2,7 @@ name: CGV IMAX Monitor
 
 on:
   schedule:
-    # 백업용. 오라클 VM(monitor.py --loop, 30~60초 간격)이 주력이고,
-    # 이건 오라클이 멈췄을 때만 걸리는 안전망이라 촘촘할 필요 없음.
-    - cron: "*/30 * * * *"
+    - cron: "*/5 * * * *"    # 5분마다 (GitHub Actions 최소 간격)
   workflow_dispatch:          # 수동 실행 버튼
 
 permissions:
