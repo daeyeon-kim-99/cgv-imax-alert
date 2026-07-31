@@ -1,0 +1,26 @@
+# 오라클 VM 배포용 systemd 유닛.
+#
+# 설치:
+#   sudo cp deploy/cgv-monitor.service /etc/systemd/system/
+#   sudo cp deploy/cgv-monitor.env.example /home/ubuntu/cgv-imax-alert/.env   # 값 채워넣기
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cgv-monitor
+#
+# 로그 확인: journalctl -u cgv-monitor -f
+
+[Unit]
+Description=CGV IMAX/4DX/SCREENX 특별관 모니터
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/cgv-imax-alert
+EnvironmentFile=/home/ubuntu/cgv-imax-alert/.env
+ExecStart=/usr/bin/python3 monitor.py --loop --interval 30
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
